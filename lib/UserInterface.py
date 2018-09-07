@@ -2,112 +2,38 @@ import random
 import math
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QSize, QTimer
-from PyQt5.QtGui import QPalette
+from PyQt5.QtGui import QPalette, QIcon
 from lib.Field import Field
+from lib.Snake import Snake
+from lib.Apples import Apples
+from lib.Configurable import Configurable
 
-class UserInterface(QMainWindow):
+class UserInterface(Configurable, QMainWindow):
     MOVE_UP = 1
     MOVE_RIGHT = 2
     MOVE_DOWN = 3
     MOVE_LEFT = 4
     
-    def __init__(self, config):
-        super(UserInterface, self).__init__()
-        self.config = config
-        self.fieldWidth = int(self.config['default']['fieldWidth'])
-        self.fieldHeight = int(self.config['default']['fieldHeight'])
-        self.initApplesCount = int(self.config['default']['initApplesCount'])
-        self.initSnakeSize = int(self.config['default']['initSnakeSize'])
-        self.growSnakeSegments = int(self.config['default']['growSnakeSegments'])
-        self.addApplesOnTimeout = int(self.config['default']['addApplesOnTimeout'])
-        self.appleTimeout = int(self.config['default']['appleTimeout'])
-        self.snakeSpeed = float(self.config['default']['snakeSpeed'])
-        self.resolution = int(self.config['ui']['resolution'])
-        self.spacing = int(self.config['ui']['spacing'])
-        self.fontSize = int(self.config['ui']['fontSize'])
-        self.fontWeight = int(self.config['ui']['fontWeight'])
+    def __init__(self, config, *args, **kwargs):
+        Configurable.__init__(self, config, *args, **kwargs)
+        QMainWindow.__init__(self)
         
         self.snakeTimer = QTimer()
         self.snakeTimer.timeout.connect(self.moveSnake)
         self.statusbar = self.statusBar()
-
-    def initFields(self):
-        for x in range(0, self.fieldWidth):
-            for y in range(0, self.fieldHeight):
-                fld = Field(self.config, x, y)
-                self.grid.addWidget(fld, y, x)
-
-    def reset(self):
-        self.direction = None
-        self.currentScore = 0
-        self.movesToGrow = 0
-        self.snake = []
-        self.apples = []
-        self.isStarted = False
         
-        # Reset all fields
-        for x in range(0, self.fieldWidth):
-            for y in range(0, self.fieldHeight):
-                fld = self.grid.itemAtPosition(y, x).widget()
-                fld.reset()
+        self.createGrid()
+        self.createResetButton()
+        self.createStartButton()
+        self.createPauseButton()
+        self.createScoreLabel()
         
-        # Add snake head
-        borderLine = math.ceil(self.initSnakeSize / 2)
-        x = random.randint(borderLine, (self.fieldWidth - (borderLine + 1)))
-        y = random.randint(borderLine, (self.fieldHeight - (borderLine + 1)))
-        fld = self.grid.itemAtPosition(y, x).widget()
-        fld.setHead()
-        self.snake.append((x, y))
-        
-        if x <= ((self.fieldWidth - 1) / 2):
-            initialDirectionX = 1
-        else:
-            initialDirectionX = -1
-        
-        if y <= ((self.fieldHeight - 1) / 2):
-            initialDirectionY = 1
-        else:
-            initialDirectionY = -1
-        
-        # Add snake body
-        while len(self.snake) < self.initSnakeSize:
-            if initialDirectionX > 0:
-                x += 1
-                if x > (self.fieldWidth - 1):
-                    x = 0
-                    if initialDirectionY > 0:
-                        y += 1
-                    else:
-                        y -= 1
-            else:
-                x -= 1
-                if x < 0:
-                    x = 0
-                    if initialDirectionY > 0:
-                        y += 1
-                    else:
-                        y -= 1
-
-            fld = self.grid.itemAtPosition(y, x).widget()
-            fld.setSnake()
-            self.snake.append((x, y))
-        
-        # Add apples
-        while len(self.apples) < self.initApplesCount:
-            self.addApple()
+        self.apples = Apples(self.config, self.grid)
+        self.snake = Snake(self.config, self.grid)
+        self.apples.setSnake(self.snake)
 
     def updateScore(self):
         self.scoreLabel.setText("%03d" % self.currentScore)
-
-    def addApple(self):
-        while True:
-            x, y = random.randint(0, self.fieldWidth - 1), random.randint(0, self.fieldHeight - 1)
-            if (x, y) not in self.snake and (x, y) not in self.apples:
-                fld = self.grid.itemAtPosition(y, x).widget()
-                fld.setApple()
-                self.apples.append((x, y))
-                self.resetAppleTimer()
-                break
 
     def resetAppleTimer(self):
         yield
@@ -117,13 +43,13 @@ class UserInterface(QMainWindow):
 
     def appleTimerTimeout(self):
         for x in range(0, self.addApplesOnTimeout):
-            self.addApple()
+            self.apples.addApple()
 
     def moveSnake(self):
-        if not self.isStarted:
+        if not self.isRunning or self.isGameOver:
             return
         
-        x, y = self.snake[0]
+        x, y = self.snake.first()
         currentFld = self.grid.itemAtPosition(y, x).widget()
         
         if self.direction == UserInterface.MOVE_UP:
@@ -134,11 +60,13 @@ class UserInterface(QMainWindow):
             y += 1
         elif self.direction == UserInterface.MOVE_LEFT:
             x -= 1
+        else:
+            return
         
         if x < 0 or x > (self.fieldWidth - 1) or y < 0 or y > (self.fieldHeight - 1):
             self.gameOver()
             return
-        if (x, y) in self.snake:
+        if self.snake.exists((x, y)):
             self.gameOver()
             return
         
@@ -149,8 +77,8 @@ class UserInterface(QMainWindow):
             self.movesToGrow += self.growSnakeSegments
             self.currentScore += 1
             self.updateScore()
-            if len(self.apples) == 0:
-                self.addApple()
+            if self.apples.len() == 0:
+                self.apples.addApple()
         
         nextFld.setHead()
         currentFld.setSnake()
@@ -173,33 +101,107 @@ class UserInterface(QMainWindow):
             self.direction = UserInterface.MOVE_DOWN
         elif (key == Qt.Key_Up or key == Qt.Key_W) and self.direction != UserInterface.MOVE_DOWN:
             self.direction = UserInterface.MOVE_UP
-        elif key == Qt.Key_Space:
-            self.direction = None
-            self.isStarted = False
-            self.snakeTimer.stop()
         else:
-            return
+            event.ignore()
+
+    def resetGame(self):
+        self.direction = None
+        self.currentScore = 0
+        self.updateScore()
+        self.movesToGrow = 0
+        self.snake.empty()
+        self.apples.empty()
+        self.isRunning = False
+        self.isGameOver = False
+        self.resetButton.hide()
+        self.startButton.show()
+        self.pauseButton.hide()
+        self.setScoreLabelColor(Qt.black)
+        self.statusbar.clearMessage()
         
-        if not self.isStarted and self.direction is not None:
-            self.isStarted = True
-            self.snakeTimer.start(self.snakeSpeed * 1000)
+        # Reset all fields
+        for x in range(0, self.fieldWidth):
+            for y in range(0, self.fieldHeight):
+                fld = self.grid.itemAtPosition(y, x).widget()
+                fld.reset()
+        
+        # Add snake
+        self.snake.initSnake()
+        
+        # Add apples
+        self.apples.initApples()
+
+    def startGame(self):
+        self.isRunning = True
+        self.snakeTimer.start(self.snakeSpeed * 1000)
+        self.resetButton.hide()
+        self.startButton.hide()
+        self.pauseButton.show()
+
+    def stopGame(self):
+        self.isRunning = False
+        self.snakeTimer.stop()
+        self.resetButton.hide()
+        self.startButton.show()
+        self.pauseButton.hide()
 
     def gameOver(self):
-        self.direction = None
-        self.isStarted = False
+        self.isGameOver = True
+        self.isRunning = False
         self.snakeTimer.stop()
+        self.resetButton.show()
+        self.startButton.hide()
+        self.pauseButton.hide()
         self.statusbar.showMessage('GAME OVER!')
-        
-        palette = self.scoreLabel.palette()
-        palette.setColor(QPalette.WindowText, Qt.red)
-        self.scoreLabel.setPalette(palette)
+        self.setScoreLabelColor(Qt.red)
 
-    def createWindow(self):
+    def createGrid(self):
         # Create a grid
         self.grid = QGridLayout()
         self.grid.setSpacing(self.spacing)
-        self.initFields()
-        self.reset()
+        for x in range(0, self.fieldWidth):
+            for y in range(0, self.fieldHeight):
+                fld = Field(self.config, x, y)
+                self.grid.addWidget(fld, y, x)
+
+    def createScoreLabel(self):
+        # Create label for score
+        self.scoreLabel = QLabel()
+        self.scoreLabel.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        # Update font size
+        font = self.scoreLabel.font()
+        font.setPointSize(self.fontSize)
+        font.setWeight(self.fontWeight)
+        self.scoreLabel.setFont(font)
+        self.setScoreLabelColor(Qt.black)
+
+    def setScoreLabelColor(self, color):
+        palette = self.scoreLabel.palette()
+        palette.setColor(QPalette.WindowText, color)
+        self.scoreLabel.setPalette(palette)
+    
+    def createButton(self, tooltip, icon, callback):
+        button = QPushButton()
+        button.setToolTip(tooltip)
+        button.setFixedSize(QSize(40, 40))
+        button.setIconSize(QSize(40, 40))
+        button.setIcon(QIcon(icon))
+        button.setFlat(True)
+        button.clicked.connect(callback)
+        button.hide()
+        return button
+    
+    def createResetButton(self):
+        self.resetButton = self.createButton('Reset game', './assets/reset.png', self.resetGame)
+
+    def createStartButton(self):
+        self.startButton = self.createButton('Start game', './assets/play.png', self.startGame)
+
+    def createPauseButton(self):
+        self.pauseButton = self.createButton('Pause game', './assets/pause.png', self.stopGame)
+
+    def createWindow(self):
+        self.resetGame()
         
         winWidth = (self.fieldWidth * (self.resolution + self.spacing)) + self.spacing
         winHeight = (self.fieldHeight * (self.resolution + self.spacing)) + self.spacing + self.fontSize
@@ -207,22 +209,12 @@ class UserInterface(QMainWindow):
         # Create vertical box
         vBox = QVBoxLayout()
         
-        # Create label for score
-        self.scoreLabel = QLabel()
-        self.scoreLabel.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-        # Update font size
-        font = self.scoreLabel.font()
-        font.setPointSize(self.fontSize)
-        font.setWeight(self.fontWeight)
-        self.scoreLabel.setFont(font)
-        palette = self.scoreLabel.palette()
-        palette.setColor(QPalette.WindowText, Qt.black)
-        self.scoreLabel.setPalette(palette)
-        self.updateScore()
-        
         # Create horizontal box
         hBox = QHBoxLayout()
         hBox.addWidget(self.scoreLabel)
+        hBox.addWidget(self.resetButton)
+        hBox.addWidget(self.startButton)
+        hBox.addWidget(self.pauseButton)
         
         # Add horizontal box to vertical box
         vBox.addLayout(hBox)
