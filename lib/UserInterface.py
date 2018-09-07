@@ -1,4 +1,3 @@
-import random
 import math
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QSize, QTimer
@@ -76,6 +75,11 @@ class UserInterface(Configurable, QMainWindow):
             self.apples.remove((x, y))
             self.movesToGrow += self.growSnakeSegments
             self.currentScore += 1
+            
+            if self.currentScore >= self.speedUpFactor and self.currentScore % self.speedUpFactor == 0:
+                self.currentSnakeSpeed = math.ceil(self.currentSnakeSpeed * 0.9);
+                self.resetSnakeTimer()
+            
             self.updateScore()
             if self.apples.len() == 0:
                 self.apples.addApple()
@@ -92,6 +96,10 @@ class UserInterface(Configurable, QMainWindow):
             lastFld.reset()
 
     def keyPressEvent(self, event):
+        if self.isGameOver:
+            event.ignore()
+            return
+        
         key = event.key()
         if (key == Qt.Key_Left or key == Qt.Key_A) and self.direction != UserInterface.MOVE_RIGHT:
             self.direction = UserInterface.MOVE_LEFT
@@ -101,6 +109,11 @@ class UserInterface(Configurable, QMainWindow):
             self.direction = UserInterface.MOVE_DOWN
         elif (key == Qt.Key_Up or key == Qt.Key_W) and self.direction != UserInterface.MOVE_DOWN:
             self.direction = UserInterface.MOVE_UP
+        elif key == Qt.Key_Space:
+            if self.isRunning:
+                self.stopGame()
+            else:
+                self.startGame()
         else:
             event.ignore()
 
@@ -118,6 +131,8 @@ class UserInterface(Configurable, QMainWindow):
         self.pauseButton.hide()
         self.setScoreLabelColor(Qt.black)
         self.statusbar.clearMessage()
+        self.currentSnakeSpeed = (self.snakeSpeed * 1000);
+        self.speedUpFactor = (self.fieldWidth * self.fieldHeight * 0.1)
         
         # Reset all fields
         for x in range(0, self.fieldWidth):
@@ -132,18 +147,20 @@ class UserInterface(Configurable, QMainWindow):
         self.apples.initApples()
 
     def startGame(self):
-        self.isRunning = True
-        self.snakeTimer.start(self.snakeSpeed * 1000)
-        self.resetButton.hide()
-        self.startButton.hide()
-        self.pauseButton.show()
+        if not self.isRunning:
+            self.isRunning = True
+            self.snakeTimer.start(self.currentSnakeSpeed)
+            self.resetButton.hide()
+            self.startButton.hide()
+            self.pauseButton.show()
 
     def stopGame(self):
-        self.isRunning = False
-        self.snakeTimer.stop()
-        self.resetButton.hide()
-        self.startButton.show()
-        self.pauseButton.hide()
+        if self.isRunning:
+            self.isRunning = False
+            self.snakeTimer.stop()
+            self.resetButton.hide()
+            self.startButton.show()
+            self.pauseButton.hide()
 
     def gameOver(self):
         self.isGameOver = True
@@ -154,6 +171,11 @@ class UserInterface(Configurable, QMainWindow):
         self.pauseButton.hide()
         self.statusbar.showMessage('GAME OVER!')
         self.setScoreLabelColor(Qt.red)
+    
+    def resetSnakeTimer(self):
+        if self.isRunning:
+            self.snakeTimer.stop()
+        self.snakeTimer.start(self.currentSnakeSpeed)
 
     def createGrid(self):
         # Create a grid
@@ -187,6 +209,7 @@ class UserInterface(Configurable, QMainWindow):
         button.setIconSize(QSize(40, 40))
         button.setIcon(QIcon(icon))
         button.setFlat(True)
+        button.setFocusPolicy(Qt.NoFocus)
         button.clicked.connect(callback)
         button.hide()
         return button
